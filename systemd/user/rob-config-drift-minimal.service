@@ -1,0 +1,9 @@
+[Unit]
+Description=Rob Config Drift Check
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/yama/ws/scripts/config-drift-check.sh
+WorkingDirectory=/home/yama/ws
+Nice=5

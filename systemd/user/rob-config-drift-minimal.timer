@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Rob Config Drift Check every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=rob-config-drift.service
+
+[Install]
+WantedBy=timers.target
