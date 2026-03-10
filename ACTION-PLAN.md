@@ -1,193 +1,179 @@
 # Rob Safety Shell — 全体アクションプラン
+> 最終更新: 2026-03-11 02:57 JST
 
-## 📊 進捗率
+## 📊 プロジェクト全体像
 
-### Phase 1: 死なない（目標: 2-3日）
-
-| タスク | 状態 | 進捗 |
-|--------|------|------|
-| インシデントDB (29件) | ✅ 完了 | 100% |
-| GPT-5.4 要件定義・設計 (返信01-09) | ✅ 完了 | 100% |
-| 既存ツール調査 (5ツール) | ✅ 完了 | 100% |
-| 方針転換 → 最小構成決定 | ✅ 完了 | 100% |
-| config-drift-check.sh コーディング | ✅ 完了 | 100% |
-| FL3 Round 1 (Codex+Sonnet) | ✅ 完了 | 100% |
-| FL3指摘修正 (CRITICAL 2 + HIGH 4) | ✅ 完了 | 100% |
-| FL3 Round 2 (Codex 82/100) | ✅ 完了 | 100% |
-| P1バグ修正 (env export) | ✅ 完了 | 100% |
-| systemd timer 作成 | ✅ 完了 | 100% |
-| **Step 1: 本体設定hardening** | ⬜ 未着手 | 0% |
-| **Step 2: 危険cron整理** | ⬜ 未着手 | 0% |
-| **Step 3: config-drift単体テスト** | ⬜ 未着手 | 0% |
-| **Step 4: timer shadow 10-15分** | ⬜ 未着手 | 0% |
-| **Step 5: watchdog skillレビュー** | ⬜ 未着手 | 0% |
-| **Step 6: watchdog staging検証** | ⬜ 未着手 | 0% |
-| **Step 7: watchdog本番有効化** | ⬜ 未着手 | 0% |
-| known-good初期化 | ⬜ 未着手 | 0% |
-| 24時間shadow観察 | ⬜ 未着手 | 0% |
-
-**Phase 1 進捗: 約55%（設計・コード完了、デプロイ・テスト未着手）**
-
-### Phase 2: 黙らない（目標: 1週間）
-| タスク | 状態 | 進捗 |
-|--------|------|------|
-| synthetic probe設計 | ⬜ | 0% |
-| reply-age / session freshness | ⬜ | 0% |
-| 並列外部HTTP制限 | ⬜ | 0% |
-| timeout/overloaded閾値 | ⬜ | 0% |
-
-**Phase 2 進捗: 0%**
-
-### Phase 3: 自己説明できる（目標: 2週間）
-| タスク | 状態 | 進捗 |
-|--------|------|------|
-| JSONL統一ログ | 🟡 布石あり | 10% |
-| human-readable log | ⬜ | 0% |
-| cause-chain | ⬜ | 0% |
-| daily ops digest | ⬜ | 0% |
-| RUNBOOK.md | ⬜ | 0% |
-| incident report自動生成 | ⬜ | 0% |
-
-**Phase 3 進捗: ~2%（JSONL schemaの思想だけ）**
-
----
-
-## 🎯 全体進捗: **約25%**
-
+### 開発:テスト比率 = 5:95
 ```
-設計・コード  ████████████████░░░░  80%
-テスト・検証  ██░░░░░░░░░░░░░░░░░░  10%
-デプロイ      ░░░░░░░░░░░░░░░░░░░░   0%
-Phase 2-3     ░░░░░░░░░░░░░░░░░░░░   1%
-─────────────────────────────────────
-全体          █████░░░░░░░░░░░░░░░░  25%
+コード書く    █░░░░░░░░░░░░░░░░░░░   5%（もう終わってる）
+手動テスト    █░░░░░░░░░░░░░░░░░░░   5%（数コマンド）
+レビュー読む  ███░░░░░░░░░░░░░░░░░░  15%（watchdog確認）
+放置して待つ  ███████████████░░░░░░  75%（shadow観察）
+```
+
+### 全Phase進捗
+```
+Phase 1 設計・コード  ████████████████████  100%（完了）
+Phase 1 デプロイ      ░░░░░░░░░░░░░░░░░░░░    0%（次やる）
+Phase 2               ░░░░░░░░░░░░░░░░░░░░    0%
+Phase 3               █░░░░░░░░░░░░░░░░░░░    2%（JSONL布石のみ）
+─────────────────────────────────────────────
+全体                  █████░░░░░░░░░░░░░░░░   25%
 ```
 
 ---
 
-## 📋 残りアクションプラン（実行順）
+## ⏱️ スケジュール（修正版 — elvis-loop前提）
 
-### 🔥 即実行可能（Phase 1 デプロイ）
+```
+3/11  Phase 1 Step 1-4 デプロイ+テスト（実作業40分）
+3/11  Phase 1 Step 5 watchdogレビュー（30分）
+3/11  Phase 1 Step 6 watchdog staging + shadow開始
+3/12  Phase 1 24h shadow完了 → Step 7 本番化 → Phase 1完了 ✅
+3/12  Phase 2 GPT-5.4に設計依頼（shadow待ち中に並行）
+3/13  Phase 2 elvis-loop実装+FL3（実作業4h）
+3/14  Phase 2 デプロイ → 観察開始
+3/14  Phase 3 GPT-5.4に設計依頼（並行）
+3/15  Phase 3 elvis-loop実装+FL3（実作業4h）
+3/16  Phase 3 デプロイ → 観察開始
+3/17  全Phase完了 ✅（観察は継続）
+```
 
-#### Step 1: 本体設定hardening 🦞ロブ
+**実作業合計: 約9時間 / カレンダー上: 6日（shadow待ちが大半）**
+
+---
+
+## 📋 Phase 1 アクションプラン（次やること）
+
+### Step 1: 本体設定hardening 🦞ロブ（5分）
 ```bash
 # バックアップ
-cp /home/yama/.openclaw/openclaw.json /home/yama/.openclaw/openclaw.json.bak.$(date +%Y%m%d-%H%M%S)
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.bak.$(date +%Y%m%d-%H%M%S)
 
 # agents.list に group:automation deny 追加
 # tools.elevated.enabled: false 確認
-# openclaw config validate --json で確認
-# openclaw security audit 実行
+openclaw config validate --json
+openclaw security audit --json || true
 ```
-- 確認: `{"valid":true}` + audit結果レビュー
-- ETA: 5分
+- ✅条件: `{"valid":true}` + audit致命的警告なし
+- 🔙ロールバック: `cp .bak ~/.openclaw/openclaw.json`
 
-#### Step 2: 危険cron整理 🗻やまちゃん
+### Step 2: 危険cron整理 🗻やまちゃん（3分）
 ```bash
 crontab -l > ~/ws/backup/crontab.before.phase1.$(date +%Y%m%d-%H%M%S)
-crontab -e  # 正午restart cron削除
+crontab -e  # 正午restart cron削除/コメントアウト
 ```
-- 確認: `crontab -l` でrestart系cron消えてること
-- ETA: 3分
+- ✅条件: `crontab -l` にrestart直叩きcronが0件
+- 🔙ロールバック: `crontab ~/ws/backup/crontab.before.phase1.*`
 
-#### Step 3: config-drift-check.sh 単体テスト 🦞ロブ
+### Step 3: config-drift-check.sh 単体テスト 🦞ロブ（10分）
 ```bash
-# スクリプト配置
+# 配置
 mkdir -p ~/ws/scripts ~/ws/state/rob-ops/known-good ~/ws/logs/rob-ops
 cp ~/ws/phase1-impl/scripts/config-drift-check.sh ~/ws/scripts/
 chmod +x ~/ws/scripts/config-drift-check.sh
 
-# known-good初期化（手動必須）
+# known-good初期化（手動必須 — H-2修正で自動化を削除済み）
 cp ~/.openclaw/openclaw.json ~/ws/state/rob-ops/known-good/openclaw.json
 
-# 正常系テスト（drift なし→静か）
-bash ~/ws/scripts/config-drift-check.sh
-echo $?  # 0であること
-cat ~/ws/logs/rob-ops/events.jsonl  # 空であること
+# 正常系: driftなし → 静か
+bash ~/ws/scripts/config-drift-check.sh && echo "exit: $?"
+cat ~/ws/logs/rob-ops/events.jsonl  # 空 or なし
 
-# 異常系テスト（drift あり→通知来る）
-echo '{}' > /tmp/test-config.json
-# CONFIG_PATH=/tmp/test-config.json で実行して通知来るか確認
+# 異常系: driftあり → Telegram通知来る
+cp ~/.openclaw/openclaw.json /tmp/test-good.json
+python3 -c "import json; c=json.load(open('/tmp/test-good.json')); c['tools']={'elevated':{'enabled':True}}; json.dump(c,open('/tmp/test-bad.json','w'))"
+CONFIG_PATH=/tmp/test-bad.json KNOWN_GOOD_PATH=/tmp/test-good.json \
+  bash ~/ws/scripts/config-drift-check.sh
+# → Telegram通知 + events.jsonl 1行
 ```
-- 確認: Telegram通知 + events.jsonl 1行
-- ETA: 10分
+- ✅条件: 正常系=静か、異常系=通知+JSONL出力
+- 🔙ロールバック: `rm ~/ws/scripts/config-drift-check.sh`
 
-#### Step 4: timer shadow 10-15分 🦞ロブ
+### Step 4: systemd timer shadow 🦞ロブ（20分 — 15分は放置）
 ```bash
-mkdir -p ~/.config/systemd/user
 cp ~/ws/phase1-impl/systemd/user/rob-config-drift.service ~/.config/systemd/user/
 cp ~/ws/phase1-impl/systemd/user/rob-config-drift.timer ~/.config/systemd/user/
-# serviceのExecStartパスを実際のパスに修正
 systemctl --user daemon-reload
 systemctl --user enable --now rob-config-drift.timer
 systemctl --user list-timers | grep rob-config-drift
+# 15分放置
+journalctl --user -u rob-config-drift.service --since "-15 min" --no-pager
 ```
-- 確認: 15分間無限エラーしない、drift時だけ通知
-- ETA: 20分（待ち時間含む）
+- ✅条件: 毎分実行、エラーなし、drift時のみ通知
+- 🔙ロールバック: `systemctl --user disable --now rob-config-drift.timer`
 
-#### Step 5: watchdog skillレビュー 🦞ロブ + 😎GPT
+### Step 5: watchdog skillレビュー 🦞ロブ（30分）
 ```bash
-npx clawhub@latest install openclaw-watchdog --dry-run  # まだ入れない
-# SKILL.md + 実スクリプトを読む
-# 8項目チェックリスト埋める
+npx clawhub@latest install openclaw-watchdog --dry-run
+# → SKILL.md + 実スクリプトを読む
 ```
-- 確認: 8項目全てOK
-- ETA: 30分
+8項目チェック:
+- [ ] restart条件（何をもって死んだと判定？）
+- [ ] backoff（cooldown/exponential/max retry）
+- [ ] systemdの触り方（systemctl restart? openclaw gateway start?）
+- [ ] bonjour watchdog使うか（Issue #30183直撃）
+- [ ] Telegram通知先
+- [ ] custom recovery scriptの実行条件
+- [ ] configを勝手に書き換えないか
+- [ ] 危険コマンド（pkill -f, kill -9, rm -rf等）
 
-#### Step 6: watchdog staging 🦞ロブ
-- notification-only / dry-runモードで検証
-- bonjour loop確認（WSL2なので出ないはず）
-- 24時間shadow
-- ETA: 24時間
+### Step 6: watchdog staging 🦞ロブ（24h放置）
+- notification-only or dry-runで入れる
+- bonjour loop監視: `journalctl --user | grep -i bonjour`
+- 11秒周期restart監視
 
-#### Step 7: watchdog本番有効化 🦞ロブ + 🗻やまちゃん
+### Step 7: watchdog本番化 🦞ロブ + 🗻やまちゃん（10分）
 - restart系cronが消えてること最終確認
 - watchdog有効化
-- ETA: 10分
 
-### ✅ Phase 1完了条件
-- [ ] restart を勝手に叩く主体が整理されている
-- [ ] watchdog が crash を拾える
-- [ ] config drift が 1分以内に見える
-- [ ] false positive が許容範囲
-- [ ] 正午 restart cron が消えている
-- [ ] 24時間shadow問題なし
-
----
-
-### 🔮 Phase 2: 黙らない（Phase 1完了後）
-
-| # | タスク | 担当 | ETA |
-|---|--------|------|-----|
-| 1 | synthetic probe設計 → GPT-5.4に依頼 | 😎GPT | 1日 |
-| 2 | reply-age検知実装 | 😎GPT→🤓Codex | 1日 |
-| 3 | 並列外部HTTP制限（web_search/fetch同時2個制限） | 🦞ロブ | 半日 |
-| 4 | timeout/overloaded閾値調整 | 🦞ロブ | 半日 |
-| 5 | FL3レビュー | 🤓Codex + 🟠Sonnet | 半日 |
-| 6 | デプロイ + 1週間観察 | 🦞ロブ | 1週間 |
-
-### 🔮 Phase 3: 自己説明できる（Phase 2完了後）
-
-| # | タスク | 担当 | ETA |
-|---|--------|------|-----|
-| 1 | JSONL統一ログ設計 → GPT-5.4 | 😎GPT | 1日 |
-| 2 | human-readable log実装 | 😎GPT→🤓Codex | 2日 |
-| 3 | cause-chain実装 | 😎GPT→🤓Codex | 2日 |
-| 4 | daily ops digest（Telegram自動送信） | 😎GPT | 1日 |
-| 5 | RUNBOOK.md（GPT-3.5でも読める） | 😎GPT | 1日 |
-| 6 | incident report自動生成 | 😎GPT→🤓Codex | 2日 |
-| 7 | FL3レビュー + デプロイ | 全員 | 3日 |
+### Phase 1完了条件
+- [ ] restart主体が整理されている（systemd + watchdog の2層のみ）
+- [ ] watchdogがcrashを拾える
+- [ ] config driftが1分以内に見える
+- [ ] false positiveが許容範囲
+- [ ] 正午restart cronが消えている
+- [ ] 24h shadow問題なし
 
 ---
 
-## ⏱️ 全体タイムライン
+## 📋 Phase 2 アクションプラン: 黙らない
 
-```
-3/11-12  Phase 1 Step 1-4（即実行）
-3/12-13  Phase 1 Step 5-7（watchdog検証）
-3/13-14  Phase 1 shadow 24時間
-3/14     Phase 1 完了 ✅
-3/15-21  Phase 2（黙らない）
-3/22-    Phase 3（自己説明）
-4月上旬   全Phase完了目標
-```
+| # | タスク | 担当 | 実作業 |
+|---|--------|------|--------|
+| 1 | GPT-5.4に設計依頼（probe + reply-age） | 😎GPT | 30分 |
+| 2 | GPT返信レビュー + ファクトチェック | 🦞ロブ | 30分 |
+| 3 | elvis-loop: コード実装+FL3 | 🤓Codex+@claude | 2h |
+| 4 | 並列HTTP制限（OpenClaw設定 or 自作） | 🦞ロブ | 30分 |
+| 5 | デプロイ + テスト | 🦞ロブ | 30分 |
+| 6 | 観察（放置） | - | 数日 |
+
+## 📋 Phase 3 アクションプラン: 自己説明できる
+
+| # | タスク | 担当 | 実作業 |
+|---|--------|------|--------|
+| 1 | GPT-5.4に設計依頼（JSONL + digest + RUNBOOK） | 😎GPT | 30分 |
+| 2 | GPT返信レビュー | 🦞ロブ | 30分 |
+| 3 | elvis-loop: JSONL統一+human log+cause-chain | 🤓Codex+@claude | 2h |
+| 4 | elvis-loop: daily ops digest+RUNBOOK | 🤓Codex+@claude | 2h |
+| 5 | デプロイ + テスト | 🦞ロブ | 30分 |
+| 6 | 観察（放置） | - | 数日 |
+
+---
+
+## 🏆 完了条件（全Phase）
+
+### Phase 1: 死なない ✅
+- config変更が1分以内に検知・通知される
+- Gateway crash時にwatchdogが自動復旧する
+- restart主体が整理されている
+
+### Phase 2: 黙らない
+- alive but unusableを検知できる
+- 無言停止をreply-ageで拾える
+- 並列HTTP暴走が抑制される
+
+### Phase 3: 自己説明できる
+- 何が起きたか1行で読める
+- 日次で「平和だった / N回火事があった」が届く
+- GPT-3.5でも追えるRUNBOOKがある
