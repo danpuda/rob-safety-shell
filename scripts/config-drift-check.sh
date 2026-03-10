@@ -38,7 +38,8 @@ KNOWN_GOOD_PATH="/home/yama/ws/state/rob-ops/known-good/openclaw.json"
 STATE_DIR="/home/yama/ws/state/rob-ops"
 LOG_DIR="/home/yama/ws/logs/rob-ops"
 EVENTS_JSONL="${LOG_DIR}/events.jsonl"
-PAIR_TARGET="telegram:pairing"
+TELEGRAM_CHANNEL="telegram"
+TELEGRAM_TARGET="8596625967"
 
 mkdir -p "$STATE_DIR" "$LOG_DIR" "$(dirname "$KNOWN_GOOD_PATH")"
 
@@ -91,7 +92,7 @@ PY
 send_notice() {
   local title="$1"
   local body="$2"
-  "$OPENCLAW" message send --channel "$PAIR_TARGET" --text "$title
+  "$OPENCLAW" message send --channel "$TELEGRAM_CHANNEL" --target "$TELEGRAM_TARGET" -m "$title
 
 $body" >/dev/null 2>&1 || \
     logger -t config-drift-check "WARN: Telegram notification failed for: $title"
