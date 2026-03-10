@@ -230,9 +230,9 @@ if [ "$gateway_ok" != "true" ]; then
   emit_event "gateway_rpc_unhealthy" "critical" "notify" \
     "gateway status is not healthy" \
     "$(python3 -c "import json,sys; print(json.dumps({'gateway_status':sys.argv[1][:800]},ensure_ascii=False))" "$gateway_status_text")"
-  notify "🚨 Gateway異常" "gateway_unhealthy
+  notify "🚨 Gateway異常
 $(ts_jst_hm) gateway status が unhealthy
-次: openclaw gateway status / openclaw logs --follow を確認"
+次: openclaw gateway status / openclaw logs --follow を確認" "gateway_unhealthy"
 fi
 
 if [ "$channels_ok" != "true" ]; then
