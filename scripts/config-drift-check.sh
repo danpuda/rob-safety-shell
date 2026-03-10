@@ -1,489 +1,193 @@
 #!/bin/bash
-# config-drift-check.sh
-# - /home/yama/.openclaw/openclaw.json の sha256sum 監視
-# - known-good と比較
-# - openclaw config validate --json 実行
-# - drift 検知時は JSONL + Telegram 通知
-# - 危険キー差分を抽出
+# config-drift-check.sh — Phase 1 minimal config drift detector
+# - config drift を検知して知らせるだけ。restart しない（責務分離）
+# - Phase 3 の布石として events.jsonl に 1 行出す
+#
+# FL3 review: Codex 43/100 + Sonnet 28/100 → 5件修正済み
+#   C-1: vm.runInNewContext → JSON.parse
+#   C-2: sensitive keys value masking
+#   H-1/H-4: trap で無通知終了防止
+#   H-2: known-good 自動初期化削除
+#   H-3: systemd unit パス統一
 
 set -euo pipefail
+
+# --- エラー時も通知する（H-1/H-4 修正） ---
+on_error() {
+  local exit_code=$?
+  local line_no=${1:-unknown}
+  emit_event "check_error" "error" \
+    "config-drift-check failed at line ${line_no} with exit code ${exit_code}" \
+    '{"error":"script_failure","line":"'"${line_no}"'","exit_code":'"${exit_code}"'}' 2>/dev/null || true
+  send_notice "⚠️ Config drift check failed" \
+    "time: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S')
+exit_code: ${exit_code}
+line: ${line_no}
+action: check script logs" 2>/dev/null || true
+}
+trap 'on_error ${LINENO}' ERR
 
 LOCK_FILE="/tmp/config-drift-check.lock"
 exec 9>"$LOCK_FILE"
 flock -n 9 || exit 0
 
-PATH="/home/yama/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin:/home/yama/.local/bin:${PATH:-}"
+PATH="/home/yama/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 OPENCLAW="/home/yama/.nvm/versions/node/v22.22.0/bin/openclaw"
-
 CONFIG_PATH="/home/yama/.openclaw/openclaw.json"
+KNOWN_GOOD_PATH="/home/yama/ws/state/rob-ops/known-good/openclaw.json"
 STATE_DIR="/home/yama/ws/state/rob-ops"
 LOG_DIR="/home/yama/ws/logs/rob-ops"
-KNOWN_GOOD_DIR="${STATE_DIR}/known-good"
-KNOWN_GOOD_PATH="${KNOWN_GOOD_DIR}/openclaw.json"
-STATE_FILE="${STATE_DIR}/config-drift-state.json"
-LAST_VALIDATE_JSON="${STATE_DIR}/config-validate-last.json"
-LAST_DIFF_JSON="${STATE_DIR}/config-diff-last.json"
 EVENTS_JSONL="${LOG_DIR}/events.jsonl"
-HUMAN_LOG="${LOG_DIR}/events-human.log"
-LEGACY_LOG="/tmp/config-drift-check.log"
 PAIR_TARGET="telegram:pairing"
 
-mkdir -p "$STATE_DIR" "$LOG_DIR" "$KNOWN_GOOD_DIR" "$(dirname "$LEGACY_LOG")"
+mkdir -p "$STATE_DIR" "$LOG_DIR" "$(dirname "$KNOWN_GOOD_PATH")"
 
-timestamp_jst() {
-  TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S'
-}
+# --- known-good は手動初期化必須（H-2 修正） ---
+if [[ ! -f "$KNOWN_GOOD_PATH" ]]; then
+  echo "ERROR: known-good not initialized." >&2
+  echo "Run: cp $CONFIG_PATH $KNOWN_GOOD_PATH" >&2
+  exit 2
+fi
 
-ts_iso() {
-  date --iso-8601=seconds
-}
+ts_iso() { date --iso-8601=seconds; }
+hash_file() { sha256sum "$1" | awk '{print $1}'; }
 
-rotate_line_log() {
-  local file="$1"
-  local keep_lines="$2"
-  local max_lines="$3"
-  if [[ -f "$file" ]]; then
-    local lines
-    lines=$(wc -l < "$file" 2>/dev/null || echo 0)
-    if [[ "$lines" -gt "$max_lines" ]]; then
-      tail -n "$keep_lines" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
-    fi
-  fi
-}
+# --- sensitive keys のマスクリスト（C-2 修正） ---
+SENSITIVE_PATTERNS="auth.tokens|password|secret|apiKey|apikey"
 
 emit_event() {
-  local layer="$1"
-  local component="$2"
-  local event_name="$3"
-  local severity="$4"
-  local decision="$5"
-  local reason="$6"
-  local target="$7"
-  local next_step="$8"
-  local evidence_json="${9:-{}}"
-
+  local event_name="$1"
+  local severity="$2"
+  local reason="$3"
+  local evidence_json="$4"
   EVENT_TS="$(ts_iso)" \
-  EVENT_LAYER="$layer" \
-  EVENT_COMPONENT="$component" \
   EVENT_NAME="$event_name" \
   EVENT_SEVERITY="$severity" \
-  EVENT_DECISION="$decision" \
   EVENT_REASON="$reason" \
-  EVENT_TARGET="$target" \
-  EVENT_NEXT_STEP="$next_step" \
   EVENT_EVIDENCE_JSON="$evidence_json" \
   EVENTS_PATH="$EVENTS_JSONL" \
   python3 - <<'PY'
-import json
-import os
+import json, os
 from pathlib import Path
 payload = {
     "ts": os.environ["EVENT_TS"],
-    "layer": os.environ["EVENT_LAYER"],
-    "component": os.environ["EVENT_COMPONENT"],
+    "layer": "observer",
+    "component": "config-drift-check",
     "event": os.environ["EVENT_NAME"],
     "severity": os.environ["EVENT_SEVERITY"],
-    "decision": os.environ["EVENT_DECISION"],
+    "decision": "notify",
     "reason": os.environ["EVENT_REASON"],
-    "target": os.environ["EVENT_TARGET"],
-    "next_step": os.environ["EVENT_NEXT_STEP"],
-    "evidence": json.loads(os.environ.get("EVENT_EVIDENCE_JSON", "{}")),
+    "target": "/home/yama/.openclaw/openclaw.json",
+    "next_step": "review config and known-good diff",
+    "evidence": json.loads(os.environ["EVENT_EVIDENCE_JSON"]),
 }
 path = Path(os.environ["EVENTS_PATH"])
 path.parent.mkdir(parents=True, exist_ok=True)
-with path.open("a", encoding="utf-8") as fh:
-    fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+with path.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 PY
 }
 
-emit_human_log() {
-  local severity="$1"
-  local component="$2"
-  local event_name="$3"
-  local reason="$4"
-  local action="$5"
-  local next_step="$6"
-  printf '[%s][%s][observer/%s] event=%s reason=%s action=%s next=%s\n' \
-    "$(timestamp_jst)" "$severity" "$component" "$event_name" "$reason" "$action" "$next_step" >> "$HUMAN_LOG"
-}
-
-send_telegram_notice() {
+send_notice() {
   local title="$1"
   local body="$2"
-  if [[ ! -x "$OPENCLAW" ]]; then
-    return 0
-  fi
-  local msg
-  msg=$(cat <<EOF
-$title
+  "$OPENCLAW" message send --channel "$PAIR_TARGET" --text "$title
 
-$body
-EOF
-)
-  "$OPENCLAW" message send --channel "$PAIR_TARGET" --text "$msg" >/dev/null 2>&1 || true
+$body" >/dev/null 2>&1 || \
+    logger -t config-drift-check "WARN: Telegram notification failed for: $title"
 }
 
-ensure_state_file() {
-  if [[ ! -f "$STATE_FILE" ]]; then
-    cat > "$STATE_FILE" <<'EOF'
-{
-  "lastConfigHash": "",
-  "lastKnownGoodHash": "",
-  "lastDriftAlertAt": "",
-  "lastValidateAlertAt": "",
-  "lastDangerAlertAt": ""
-}
-EOF
-  fi
-}
-
-read_state_field() {
-  local key="$1"
-  python3 - "$STATE_FILE" "$key" <<'PY'
-import json
-import sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-print(data.get(sys.argv[2], ""))
-PY
-}
-
-update_state_fields() {
-  python3 - "$STATE_FILE" "$@" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-updates = sys.argv[2:]
-data = json.loads(path.read_text(encoding="utf-8"))
-
-for pair in updates:
-    key, value = pair.split("=", 1)
-    data[key] = value
-
-path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-PY
-}
-
-should_emit_alert() {
-  local field_name="$1"
-  local cooldown_sec="$2"
-  python3 - "$STATE_FILE" "$field_name" "$cooldown_sec" <<'PY'
-import json
-import sys
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
-path = Path(sys.argv[1])
-field_name = sys.argv[2]
-cooldown = int(sys.argv[3])
-data = json.loads(path.read_text(encoding="utf-8"))
-last = data.get(field_name)
-if not last:
-    print("yes")
-    raise SystemExit(0)
-
-def parse_iso(s: str):
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    return datetime.fromisoformat(s)
-
-last_dt = parse_iso(last)
-now_dt = datetime.now(timezone.utc).astimezone()
-print("yes" if now_dt - last_dt >= timedelta(seconds=cooldown) else "no")
-PY
-}
-
-file_hash() {
-  local file="$1"
-  if [[ -f "$file" ]]; then
-    sha256sum "$file" | awk '{print $1}'
-  else
-    echo ""
-  fi
-}
-
-run_validate() {
-  if [[ ! -x "$OPENCLAW" ]]; then
-    cat > "$LAST_VALIDATE_JSON" <<'EOF'
-{"ok": false, "error": "openclaw binary not found", "raw": ""}
-EOF
-    return 1
-  fi
-
-  local out
-  local rc=0
-  out=$("$OPENCLAW" config validate --json 2>&1) || rc=$?
-  VALIDATE_OUT="$out" VALIDATE_RC="$rc" VALIDATE_PATH="$LAST_VALIDATE_JSON" python3 - <<'PY'
-import json
-import os
-from pathlib import Path
-
-raw = os.environ["VALIDATE_OUT"]
-rc = int(os.environ["VALIDATE_RC"])
-ok = False
-parsed = None
+CURRENT_HASH="$(hash_file "$CONFIG_PATH")"
+KNOWN_HASH="$(hash_file "$KNOWN_GOOD_PATH")"
+VALIDATE_RAW="$("$OPENCLAW" config validate --json 2>&1 || true)"
+VALIDATE_OK="$(python3 - <<'PY' "$VALIDATE_RAW"
+import json, sys
 try:
-    parsed = json.loads(raw) if raw.strip() else None
-    if isinstance(parsed, dict):
-        # 公式 docs bundle 上の validate 出力差分がありえるため、
-        # ok/valid/success のどれかを優先評価
-        if parsed.get("ok") is True or parsed.get("valid") is True or parsed.get("success") is True:
-            ok = True
-        elif parsed.get("ok") is False or parsed.get("valid") is False or parsed.get("success") is False:
-            ok = False
-        else:
-            ok = (rc == 0)
-    else:
-        ok = (rc == 0)
+    data = json.loads(sys.argv[1])
+    print("true" if data.get("valid") is True else "false")
 except Exception:
-    parsed = None
-    ok = (rc == 0)
-
-payload = {
-    "ok": ok,
-    "rc": rc,
-    "parsed": parsed,
-    "raw": raw,
-}
-Path(os.environ["VALIDATE_PATH"]).write_text(
-    json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-  [[ "$rc" -eq 0 ]]
-}
-
-diff_dangerous_keys() {
-  python3 - "$CONFIG_PATH" "$KNOWN_GOOD_PATH" "$LAST_DIFF_JSON" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-config_path = Path(sys.argv[1])
-known_path = Path(sys.argv[2])
-out_path = Path(sys.argv[3])
-
-dangerous_keys = [
-    "agents.defaults.compaction.mode",
-    "agents.defaults.compaction.reserveTokensFloor",
-    "agents.defaults.compaction.memoryFlush.enabled",
-    "agents.defaults.contextPruning.mode",
-    "agents.defaults.contextPruning.ttl",
-    "agents.defaults.tools.loopDetection.enabled",
-    "agents.defaults.tools.loopDetection.suspiciousPrefixes",
-    "gateway.auth.mode",
-    "gateway.auth.tokens",
-    "gateway.bind",
-    "gateway.controlUi.enabled",
-    "gateway.controlUi.allowedOrigins",
-    "channels.telegram.enabled",
-    "channels.discord.enabled",
-    "channels.whatsapp.enabled",
-    "channels.msteams.enabled",
-    "channels.telegram.dmPolicy",
-    "channels.telegram.groupPolicy",
-    "session.dmScope",
-    "tools.elevated.enabled",
-]
-
-def load(path: Path):
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-def get_path(obj, dotted):
-    cur = obj
-    for part in dotted.split("."):
-        if isinstance(cur, dict) and part in cur:
-            cur = cur[part]
-        else:
-            return None
-    return cur
-
-cur = load(config_path)
-old = load(known_path)
-
-changed = []
-for key in dangerous_keys:
-    before = get_path(old, key)
-    after = get_path(cur, key)
-    if before != after:
-        changed.append({
-            "key": key,
-            "before": before,
-            "after": after,
-        })
-
-payload = {
-    "dangerousKeys": dangerous_keys,
-    "changedDangerousKeys": changed,
-    "hasDangerousChanges": len(changed) > 0,
-}
-out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-print(json.dumps(payload, ensure_ascii=False))
-PY
-}
-
-bootstrap_known_good_if_missing() {
-  if [[ ! -f "$KNOWN_GOOD_PATH" && -f "$CONFIG_PATH" ]]; then
-    cp "$CONFIG_PATH" "$KNOWN_GOOD_PATH"
-    emit_event "observer" "config-drift-check" "known_good_bootstrapped" "info" "observe" \
-      "known-good config was missing; bootstrapped from current config" "$KNOWN_GOOD_PATH" "review bootstrap source" \
-      "{\"configPath\": \"$CONFIG_PATH\", \"knownGoodPath\": \"$KNOWN_GOOD_PATH\"}"
-    emit_human_log "INFO" "config-drift-check" "known_good_bootstrapped" \
-      "known-good config was missing; bootstrapped from current config" "copy file" "review bootstrap source"
-  fi
-}
-
-ensure_state_file
-bootstrap_known_good_if_missing
-
-CURRENT_HASH="$(file_hash "$CONFIG_PATH")"
-KNOWN_HASH="$(file_hash "$KNOWN_GOOD_PATH")"
-NOW_ISO="$(ts_iso)"
-NOW_JST="$(timestamp_jst)"
-
-VALIDATE_OK="false"
-if run_validate; then
-  VALIDATE_OK="true"
-fi
-
-DIFF_JSON="$(diff_dangerous_keys)"
-HAS_DANGEROUS_CHANGES="$(python3 - "$LAST_DIFF_JSON" <<'PY'
-import json, sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-print("true" if data.get("hasDangerousChanges") else "false")
-PY
-)"
-DANGEROUS_COUNT="$(python3 - "$LAST_DIFF_JSON" <<'PY'
-import json, sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-print(len(data.get("changedDangerousKeys", [])))
+    print("false")
 PY
 )"
 
-drift_detected="false"
-if [[ -n "$CURRENT_HASH" && -n "$KNOWN_HASH" && "$CURRENT_HASH" != "$KNOWN_HASH" ]]; then
-  drift_detected="true"
-fi
-
-alerts=0
-
-if [[ "$drift_detected" == "true" ]]; then
-  if [[ "$(should_emit_alert "lastDriftAlertAt" 600)" == "yes" ]]; then
-    evidence_json=$(python3 - "$CURRENT_HASH" "$KNOWN_HASH" "$CONFIG_PATH" "$KNOWN_GOOD_PATH" "$DANGEROUS_COUNT" <<'PY'
-import json
-import sys
-payload = {
-    "configHash": sys.argv[1],
-    "knownGoodHash": sys.argv[2],
-    "configPath": sys.argv[3],
-    "knownGoodPath": sys.argv[4],
-    "dangerousChangeCount": int(sys.argv[5]),
+# --- C-1 修正: vm.runInNewContext → JSON.parse ---
+# --- C-2 修正: sensitive keys の value を [REDACTED] に ---
+DIFF_JSON="$(
+CONFIG_PATH="$CONFIG_PATH" \
+KNOWN_GOOD_PATH="$KNOWN_GOOD_PATH" \
+SENSITIVE_PATTERNS="$SENSITIVE_PATTERNS" \
+node <<'NODE'
+const fs = require("node:fs");
+const currentPath = process.env.CONFIG_PATH;
+const knownPath = process.env.KNOWN_GOOD_PATH;
+const sensitiveRe = new RegExp(process.env.SENSITIVE_PATTERNS, "i");
+const dangerous = [
+  "agents.defaults.compaction.mode",
+  "agents.defaults.compaction.reserveTokensFloor",
+  "agents.defaults.compaction.memoryFlush.enabled",
+  "agents.defaults.contextPruning.mode",
+  "agents.defaults.contextPruning.ttl",
+  "agents.defaults.tools.loopDetection.enabled",
+  "agents.defaults.tools.loopDetection.suspiciousPrefixes",
+  "gateway.auth.mode",
+  "gateway.auth.tokens",
+  "gateway.bind",
+  "gateway.controlUi.enabled",
+  "gateway.controlUi.allowedOrigins",
+  "channels.telegram.enabled",
+  "channels.discord.enabled",
+  "channels.whatsapp.enabled",
+  "channels.msteams.enabled",
+  "channels.telegram.dmPolicy",
+  "channels.telegram.groupPolicy",
+  "session.dmScope",
+  "tools.elevated.enabled"
+];
+function load(p) {
+  return JSON.parse(fs.readFileSync(p, "utf8"));
 }
-print(json.dumps(payload, ensure_ascii=False))
-PY
-)
-    emit_event "observer" "config-drift-check" "config_drift_detected" "critical" "notify" \
-      "openclaw.json differs from known-good" "$CONFIG_PATH" "require human review before restart" "$evidence_json"
-    emit_human_log "CRITICAL" "config-drift-check" "config_drift_detected" \
-      "openclaw.json differs from known-good" "notify only" "require human review before restart"
-    send_telegram_notice "🚨 Config drift detected" \
-      "time: ${NOW_JST}
-config: ${CONFIG_PATH}
-known-good: ${KNOWN_GOOD_PATH}
-dangerousChangeCount: ${DANGEROUS_COUNT}
-action: review required before restart/rollback"
-    update_state_fields "lastDriftAlertAt=${NOW_ISO}"
-    alerts=$((alerts + 1))
-  fi
-fi
-
-if [[ "$VALIDATE_OK" != "true" ]]; then
-  if [[ "$(should_emit_alert "lastValidateAlertAt" 600)" == "yes" ]]; then
-    validate_raw=$(python3 - "$LAST_VALIDATE_JSON" <<'PY'
-import json, sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-raw = data.get("raw", "")
-print(raw[:500])
-PY
-)
-    evidence_json=$(python3 - "$LAST_VALIDATE_JSON" "$CONFIG_PATH" <<'PY'
-import json
-import sys
-from pathlib import Path
-validate = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-payload = {
-    "configPath": sys.argv[2],
-    "validateOk": validate.get("ok"),
-    "validateRc": validate.get("rc"),
-    "validateParsed": validate.get("parsed"),
-    "validateRaw": validate.get("raw", "")[:500],
+function get(obj, path) {
+  return path.split(".").reduce((acc, k) => (acc != null && Object.prototype.hasOwnProperty.call(acc, k) ? acc[k] : undefined), obj);
 }
-print(json.dumps(payload, ensure_ascii=False))
-PY
-)
-    emit_event "observer" "config-drift-check" "config_validate_failed" "critical" "notify" \
-      "openclaw config validate --json failed" "$CONFIG_PATH" "require manual fix before restart" "$evidence_json"
-    emit_human_log "CRITICAL" "config-drift-check" "config_validate_failed" \
-      "openclaw config validate --json failed" "notify only" "require manual fix before restart"
-    send_telegram_notice "🚨 Config validation failed" \
-      "time: ${NOW_JST}
-config: ${CONFIG_PATH}
-action: fix config before restart
-summary: ${validate_raw}"
-    update_state_fields "lastValidateAlertAt=${NOW_ISO}"
-    alerts=$((alerts + 1))
-  fi
-fi
-
-if [[ "$HAS_DANGEROUS_CHANGES" == "true" ]]; then
-  if [[ "$(should_emit_alert "lastDangerAlertAt" 600)" == "yes" ]]; then
-    changed_keys="$(python3 - "$LAST_DIFF_JSON" <<'PY'
-import json, sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-keys = [item["key"] for item in data.get("changedDangerousKeys", [])]
-print(", ".join(keys[:12]))
-PY
+function mask(key, val) {
+  if (sensitiveRe.test(key) && val !== undefined && val !== null) return "[REDACTED]";
+  return val;
+}
+const cur = load(currentPath);
+const old = load(knownPath);
+const changed = dangerous.flatMap((key) => {
+  const before = get(old, key);
+  const after = get(cur, key);
+  if (before === undefined && after === undefined) return [];
+  if (JSON.stringify(before) === JSON.stringify(after)) return [];
+  return [{ key, before: mask(key, before), after: mask(key, after) }];
+});
+process.stdout.write(JSON.stringify({ changedDangerousKeys: changed }, null, 0));
+NODE
 )"
-    evidence_json="$(cat "$LAST_DIFF_JSON")"
-    emit_event "observer" "config-drift-check" "dangerous_config_keys_changed" "critical" "notify" \
-      "dangerous config keys changed relative to known-good" "$CONFIG_PATH" "require human confirm" "$evidence_json"
-    emit_human_log "CRITICAL" "config-drift-check" "dangerous_config_keys_changed" \
-      "dangerous config keys changed relative to known-good" "notify only" "require human confirm"
-    send_telegram_notice "⚠️ Dangerous config keys changed" \
-      "time: ${NOW_JST}
-count: ${DANGEROUS_COUNT}
-keys: ${changed_keys}
-action: human confirm required"
-    update_state_fields "lastDangerAlertAt=${NOW_ISO}"
-    alerts=$((alerts + 1))
-  fi
+
+DANGEROUS_COUNT="$(echo "$DIFF_JSON" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("changedDangerousKeys",[])))')"
+
+if [[ "$CURRENT_HASH" != "$KNOWN_HASH" || "$VALIDATE_OK" != "true" || "$DANGEROUS_COUNT" -gt 0 ]]; then
+  KEYS="$(echo "$DIFF_JSON" | python3 -c 'import json,sys; print(", ".join(x["key"] for x in json.load(sys.stdin).get("changedDangerousKeys",[])[:10]))')"
+  EVIDENCE_JSON="$(echo "$DIFF_JSON" | python3 -c '
+import json,sys,os
+diff = json.load(sys.stdin)
+print(json.dumps({
+    "configHash": os.environ["CURRENT_HASH"],
+    "knownGoodHash": os.environ["KNOWN_HASH"],
+    "validateOk": os.environ["VALIDATE_OK"] == "true",
+    "dangerousChangeCount": int(os.environ["DANGEROUS_COUNT"]),
+    "dangerousDiff": diff.get("changedDangerousKeys", []),
+}, ensure_ascii=False))' )"
+  emit_event "config_drift_detected" "critical" \
+    "config drift / validate failure / dangerous key change detected" "$EVIDENCE_JSON"
+  send_notice "🚨 Config drift detected" \
+"time: $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S')
+config: $CONFIG_PATH
+known-good: $KNOWN_GOOD_PATH
+validate_ok: $VALIDATE_OK
+dangerous_change_count: $DANGEROUS_COUNT
+keys: ${KEYS:-none}
+action: review only (no restart)"
 fi
-
-update_state_fields \
-  "lastConfigHash=${CURRENT_HASH}" \
-  "lastKnownGoodHash=${KNOWN_HASH}"
-
-if [[ "$alerts" -eq 0 ]]; then
-  minute=$(date '+%M')
-  if [[ $((10#${minute} % 10)) -eq 0 ]]; then
-    emit_event "observer" "config-drift-check" "config_drift_ok" "info" "observe" \
-      "config matches known-good or no new critical drift found" "$CONFIG_PATH" "none" \
-      "{\"configHash\": \"$CURRENT_HASH\", \"knownGoodHash\": \"$KNOWN_HASH\", \"validateOk\": ${VALIDATE_OK}}"
-    emit_human_log "INFO" "config-drift-check" "config_drift_ok" \
-      "config matches known-good or no new critical drift found" "none" "none"
-  fi
-fi
-
-printf '[%s] alerts=%s drift=%s validate_ok=%s dangerous_changes=%s current_hash=%s known_hash=%s\n' \
-  "$NOW_JST" "$alerts" "$drift_detected" "$VALIDATE_OK" "$HAS_DANGEROUS_CHANGES" "${CURRENT_HASH:-}" "${KNOWN_HASH:-}" >> "$LEGACY_LOG"
-
-rotate_line_log "$LEGACY_LOG" 500 1000
-rotate_line_log "$HUMAN_LOG" 2000 5000

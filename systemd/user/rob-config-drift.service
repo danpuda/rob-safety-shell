@@ -1,11 +1,10 @@
 [Unit]
-Description=Run Rob Resource Monitor every 10 minutes
+Description=Rob Config Drift Check
+After=default.target
 
-[Timer]
-OnBootSec=3min
-OnUnitActiveSec=10min
-AccuracySec=15s
-Unit=rob-resource.service
-
-[Install]
-WantedBy=timers.target
+[Service]
+Type=oneshot
+ExecStart=/home/yama/ws/scripts/config-drift-check.sh
+WorkingDirectory=/home/yama/ws
+Nice=5
+Environment=CURRENT_HASH= KNOWN_HASH= VALIDATE_OK= DANGEROUS_COUNT=
