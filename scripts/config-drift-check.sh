@@ -171,10 +171,7 @@ DANGEROUS_COUNT="$(echo "$DIFF_JSON" | python3 -c 'import json,sys; print(len(js
 if [[ "$CURRENT_HASH" != "$KNOWN_HASH" || "$VALIDATE_OK" != "true" || "$DANGEROUS_COUNT" -gt 0 ]]; then
   KEYS="$(echo "$DIFF_JSON" | python3 -c 'import json,sys; print(", ".join(x["key"] for x in json.load(sys.stdin).get("changedDangerousKeys",[])[:10]))')"
   EVIDENCE_JSON="$(
-    CURRENT_HASH="$CURRENT_HASH" \
-    KNOWN_HASH="$KNOWN_HASH" \
-    VALIDATE_OK="$VALIDATE_OK" \
-    DANGEROUS_COUNT="$DANGEROUS_COUNT" \
+    export CURRENT_HASH KNOWN_HASH VALIDATE_OK DANGEROUS_COUNT
     echo "$DIFF_JSON" | python3 -c '
 import json,sys,os
 diff = json.load(sys.stdin)
