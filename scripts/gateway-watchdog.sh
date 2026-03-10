@@ -5,18 +5,19 @@
 set -euo pipefail
 
 # --- 設定 ---
-HEALTH_URL="http://127.0.0.1:18790/health"
-FAIL_THRESHOLD=3
-STATE_FILE="/home/yama/ws/state/rob-ops/watchdog-fail-count"
-EVENTS_JSONL="/home/yama/ws/logs/rob-ops/events.jsonl"
-OPENCLAW="/home/yama/.nvm/versions/node/v22.22.0/bin/openclaw"
-TELEGRAM_CHANNEL="telegram"
-TELEGRAM_TARGET="8596625967"
-COOLDOWN_FILE="/home/yama/ws/state/rob-ops/watchdog-last-notify"
-COOLDOWN_SECONDS=300  # 同じ障害で5分に1回まで
+HEALTH_URL="${WATCHDOG_HEALTH_URL:-http://127.0.0.1:18790/health}"
+FAIL_THRESHOLD="${WATCHDOG_FAIL_THRESHOLD:-3}"
+STATE_DIR="${WATCHDOG_STATE_DIR:-$HOME/ws/state/rob-ops}"
+STATE_FILE="${STATE_DIR}/watchdog-fail-count"
+EVENTS_JSONL="${WATCHDOG_LOG_DIR:-$HOME/ws/logs/rob-ops}/events.jsonl"
+OPENCLAW="${WATCHDOG_OPENCLAW:-$(command -v openclaw)}"
+TELEGRAM_CHANNEL="${WATCHDOG_TELEGRAM_CHANNEL:-telegram}"
+TELEGRAM_TARGET="${WATCHDOG_TELEGRAM_TARGET:?WATCHDOG_TELEGRAM_TARGET must be set}"
+COOLDOWN_FILE="${STATE_DIR}/watchdog-last-notify"
+COOLDOWN_SECONDS="${WATCHDOG_COOLDOWN:-300}"  # 同じ障害で5分に1回まで
 
 # --- ディレクトリ ---
-mkdir -p "$(dirname "$STATE_FILE")" "$(dirname "$EVENTS_JSONL")"
+mkdir -p "$STATE_DIR" "$(dirname "$EVENTS_JSONL")"
 
 # --- health check ---
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$HEALTH_URL" 2>/dev/null || echo "000")
@@ -29,6 +30,7 @@ fi
 
 # --- 失敗カウント ---
 FAIL_COUNT=$(cat "$STATE_FILE" 2>/dev/null || echo "0")
+[[ "$FAIL_COUNT" =~ ^[0-9]+$ ]] || FAIL_COUNT=0
 FAIL_COUNT=$((FAIL_COUNT + 1))
 echo "$FAIL_COUNT" > "$STATE_FILE"
 
@@ -53,8 +55,9 @@ systemdのRestart=on-failureが復旧を試みます。
   -m "${TITLE}
 
 ${BODY}" >/dev/null 2>&1 || \
-  logger -t gateway-watchdog "WARN: Telegram notification failed"
+  logger -t gateway-watchdog "WARN: Telegram notification failed" || true
 
+# --- クールダウン更新（JSONL書き込み失敗でも通知洪水を防ぐ） ---
 echo "$NOW" > "$COOLDOWN_FILE"
 
 # --- JSONL記録 ---
