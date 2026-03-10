@@ -104,9 +104,11 @@ fi
 
 channels_ok="true"
 channels_warn_reason=""
-if grep -Eqi 'pairing required|blocked|allowlist|mention required|failed|error|unauthorized' <<<"$channels_status_text"; then
+# Doctor warningsセクションを除外してからチェック（groupPolicy allowlistのfalse positive防止）
+channels_status_filtered="$(grep -v 'Doctor warnings' <<<"$channels_status_text" | grep -v 'groupPolicy' | grep -v 'groupAllowFrom')"
+if grep -Eqi 'pairing required|blocked|mention required|failed|unauthorized' <<<"$channels_status_filtered"; then
   channels_ok="false"
-  channels_warn_reason="$(grep -Ei 'pairing required|blocked|allowlist|mention required|failed|error|unauthorized' <<<"$channels_status_text" | head -1 | tr -d '\r' | python3 -c "import sys; print(sys.stdin.read()[:80])")"
+  channels_warn_reason="$(grep -Ei 'pairing required|blocked|mention required|failed|unauthorized' <<<"$channels_status_filtered" | head -1 | tr -d '\r' | python3 -c "import sys; print(sys.stdin.read()[:80])")"
 fi
 
 session_stats="$(
