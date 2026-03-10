@@ -53,7 +53,7 @@ ts_iso() { date --iso-8601=seconds; }
 hash_file() { sha256sum "$1" | awk '{print $1}'; }
 
 # --- sensitive keys のマスクリスト（C-2 修正） ---
-SENSITIVE_PATTERNS="auth.tokens|password|secret|apiKey|apikey"
+SENSITIVE_PATTERNS="auth\\.tokens?|password|secret|api[_-]?key|credential|private[_-]?key"
 
 emit_event() {
   local event_name="$1"
@@ -170,7 +170,12 @@ DANGEROUS_COUNT="$(echo "$DIFF_JSON" | python3 -c 'import json,sys; print(len(js
 
 if [[ "$CURRENT_HASH" != "$KNOWN_HASH" || "$VALIDATE_OK" != "true" || "$DANGEROUS_COUNT" -gt 0 ]]; then
   KEYS="$(echo "$DIFF_JSON" | python3 -c 'import json,sys; print(", ".join(x["key"] for x in json.load(sys.stdin).get("changedDangerousKeys",[])[:10]))')"
-  EVIDENCE_JSON="$(echo "$DIFF_JSON" | python3 -c '
+  EVIDENCE_JSON="$(
+    CURRENT_HASH="$CURRENT_HASH" \
+    KNOWN_HASH="$KNOWN_HASH" \
+    VALIDATE_OK="$VALIDATE_OK" \
+    DANGEROUS_COUNT="$DANGEROUS_COUNT" \
+    echo "$DIFF_JSON" | python3 -c '
 import json,sys,os
 diff = json.load(sys.stdin)
 print(json.dumps({
