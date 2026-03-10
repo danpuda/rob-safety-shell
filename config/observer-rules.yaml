@@ -1,0 +1,60 @@
+version: 1
+
+paths:
+  service_name: openclaw-gateway.service
+  config_path: /home/yama/.openclaw/openclaw.json
+  known_good_path: /home/yama/ws/state/rob-ops/known-good/openclaw.json
+  restart_request_path: /home/yama/ws/state/rob-ops/restart-request.json
+  gateway_status_path: /home/yama/ws/state/rob-ops/gateway-status.json
+  events_jsonl_path: /home/yama/ws/logs/rob-ops/events.jsonl
+  human_log_path: /home/yama/ws/logs/rob-ops/events-human.log
+
+timers:
+  observer_every_sec: 60
+  config_drift_every_sec: 60
+  resource_every_sec: 600
+
+thresholds:
+  restart_cooldown_sec: 900
+  restart_budget_window_sec: 3600
+  restart_budget_max: 3
+  alert_dedupe_sec: 600
+  service_inactive_alert_sec: 300
+
+network:
+  gateway_port: 18790
+
+journal_patterns:
+  embedded_run_timeout: 'embedded run timeout'
+  lane_wait_exceeded: 'lane wait exceeded'
+  compaction_failed: 'compaction[^[:cntrl:]]*failed|compaction-diag[^[:cntrl:]]*outcome=failed'
+  typing_ttl_reached: 'typing TTL reached'
+  undici_null: 'undici.*null'
+  eaddrinuse: 'EADDRINUSE|address already in use|another gateway instance is already listening'
+  profile_timed_out: 'Profile.*timed out'
+  overloaded: 'overloaded'
+  health_monitor_restarting: 'health-monitor.*restarting'
+  delivery_failed: 'Delivery failed|delivery.*failed'
+  channel_probe_failed: 'channel probe failed|channels status.*failed'
+
+dangerous_config_keys:
+  - agents.defaults.compaction.mode
+  - agents.defaults.compaction.reserveTokensFloor
+  - agents.defaults.compaction.memoryFlush.enabled
+  - agents.defaults.contextPruning.mode
+  - agents.defaults.contextPruning.ttl
+  - agents.defaults.tools.loopDetection.enabled
+  - agents.defaults.tools.loopDetection.suspiciousPrefixes
+  - gateway.auth.mode
+  - gateway.auth.tokens
+  - gateway.bind
+  - gateway.controlUi.enabled
+  - gateway.controlUi.allowedOrigins
+  - channels.telegram.enabled
+  - channels.discord.enabled
+  - channels.whatsapp.enabled
+  - channels.msteams.enabled
+  - channels.telegram.dmPolicy
+  - channels.telegram.groupPolicy
+  - session.dmScope
+  - tools.elevated.enabled

@@ -1,0 +1,9 @@
+[Unit]
+Description=Rob Resource Monitor
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/yama/ws/scripts/resource-monitor.sh
+WorkingDirectory=/home/yama/ws
+Nice=5

@@ -1,0 +1,63 @@
+--- /home/yama/.openclaw/openclaw.json.before
++++ /home/yama/.openclaw/openclaw.json.after
+@@
+ {
++  "agents": {
++    "defaults": {
++      "tools": {
++        "elevated": {
++          "enabled": false
++        }
++      }
++    },
++    "list": [
++      {
++        "id": "main",
++        "tools": {
++          "deny": [
++            "gateway",
++            "cron",
++            "write",
++            "apply_patch",
++            "exec"
++          ],
++          "elevated": {
++            "enabled": false
++          }
++        }
++      },
++      {
++        "id": "worker",
++        "tools": {
++          "deny": [
++            "gateway",
++            "cron"
++          ],
++          "elevated": {
++            "enabled": false
++          }
++        }
++      },
++      {
++        "id": "codex",
++        "tools": {
++          "deny": [
++            "gateway",
++            "cron"
++          ],
++          "elevated": {
++            "enabled": false
++          }
++        }
++      }
++    ]
++  },
++  "tools": {
++    "elevated": {
++      "enabled": false
++    }
++  },
+   "heartbeat": {
+     "every": "55m"
+   }
+ }

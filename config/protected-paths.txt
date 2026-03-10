@@ -1,0 +1,7 @@
+/home/yama/.openclaw
+/home/yama/ws/memory
+/home/yama/ws/scripts
+/home/yama/ws/config
+/home/yama/ws/BOOTSTRAP.md
+/home/yama/ws/state/rob-ops
+/home/yama/ws/logs/rob-ops

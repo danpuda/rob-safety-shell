@@ -1,0 +1,56 @@
+version: 1
+
+policy:
+  default: allow
+
+auto_allow:
+  - read
+  - grep
+  - find
+  - ls
+  - cat
+  - git_status
+  - git_log
+  - git_diff
+  - openclaw_gateway_status
+  - openclaw_health
+  - openclaw_channels_status_probe
+  - openclaw_security_audit
+  - subagent_search
+  - subagent_codex
+
+auto_deny:
+  - openclaw_gateway_start
+  - openclaw_gateway_stop
+  - openclaw_gateway_restart
+  - systemctl_user_restart_openclaw_gateway
+  - crontab_edit
+  - systemd_unit_edit
+  - openclaw_config_set
+  - openclaw_json_direct_edit
+  - dangerous_delete_protected_path
+  - truncate_protected_path
+  - overwrite_existing_file_via_write
+  - exec_sleep_over_60s
+  - web_parallel_over_2
+  - elevated_exec
+
+human_confirm:
+  - config_change_compaction
+  - config_change_context_pruning
+  - config_change_loop_detection
+  - config_change_gateway_bind
+  - config_change_gateway_auth
+  - config_change_control_ui
+  - channel_enable_disable
+  - plugin_enable_disable
+  - config_rollback
+  - sandbox_policy_change
+  - tool_policy_change
+
+protected_targets:
+  - /home/yama/.openclaw
+  - /home/yama/ws/memory
+  - /home/yama/ws/scripts
+  - /home/yama/ws/config
+  - /home/yama/ws/BOOTSTRAP.md

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Rob Observer every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Unit=rob-observer.service
+
+[Install]
+WantedBy=timers.target

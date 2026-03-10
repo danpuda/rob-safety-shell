@@ -1,0 +1,17 @@
+--- crontab.before
++++ crontab.after
+@@
+-* * * * * /home/yama/ws/scripts/rob-health-monitor.sh >/tmp/rob-health-monitor.cron.log 2>&1
++# moved to systemd user timer: rob-observer.timer
+
+@@
+-* * * * * /home/yama/ws/scripts/openclaw-monitor.sh >/tmp/openclaw-monitor.cron.log 2>&1
++# stopped: openclaw-monitor.sh no longer owns restart logic; snapshot only, invoked on demand
+
+@@
+-0 12 * * * systemctl --user restart openclaw-gateway.service >/tmp/openclaw-noon-restart.log 2>&1
++# removed: noon restart disabled; restart is owned only by restart-arbiter.sh
+
+@@
+-*/10 * * * * /home/yama/ws/scripts/resource-monitor.sh >/tmp/resource-monitor.cron.log 2>&1
++# moved to systemd user timer: rob-resource.timer

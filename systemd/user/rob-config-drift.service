@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Rob Resource Monitor every 10 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=15s
+Unit=rob-resource.service
+
+[Install]
+WantedBy=timers.target
