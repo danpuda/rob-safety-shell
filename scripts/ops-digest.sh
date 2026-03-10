@@ -11,7 +11,8 @@ flock -n 9 || exit 0
 
 MODE="${1:-human}"
 
-OPENCLAW_BIN="${OPENCLAW_BIN:-$(command -v openclaw)}"
+OPENCLAW_BIN="${OPENCLAW_BIN:-$(command -v openclaw 2>/dev/null)}"
+: "${OPENCLAW_BIN:?openclaw binary not found in PATH, set OPENCLAW_BIN}"
 STATE_DIR="${STATE_DIR:-$HOME/ws/state/rob-ops}"
 LOG_DIR="${LOG_DIR:-$HOME/ws/logs/rob-ops}"
 EVENTS_JSONL="${EVENTS_JSONL:-$LOG_DIR/events.jsonl}"

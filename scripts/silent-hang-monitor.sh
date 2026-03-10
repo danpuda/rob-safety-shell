@@ -9,7 +9,8 @@ LOCK_FILE="${LOCK_FILE:-/tmp/silent-hang-monitor.lock}"
 exec 9>"$LOCK_FILE"
 flock -n 9 || exit 0
 
-OPENCLAW_BIN="${OPENCLAW_BIN:-$(command -v openclaw)}"
+OPENCLAW_BIN="${OPENCLAW_BIN:-$(command -v openclaw 2>/dev/null)}"
+: "${OPENCLAW_BIN:?openclaw binary not found in PATH, set OPENCLAW_BIN}"
 SESSION_DIR="${SESSION_DIR:-$HOME/.openclaw/agents/main/sessions}"
 STATE_DIR="${STATE_DIR:-$HOME/ws/state/rob-ops}"
 LOG_DIR="${LOG_DIR:-$HOME/ws/logs/rob-ops}"
@@ -73,10 +74,24 @@ with path.open("a", encoding="utf-8") as f:
 PY
 }
 
+NOTIFY_COOLDOWN="${NOTIFY_COOLDOWN:-600}"  # 同じ種類の通知は10分に1回まで
+
 notify() {
   local msg="$1"
+  local kind="${2:-general}"
+  local cooldown_file="$STATE_DIR/notify-cooldown-${kind}"
+  local now
+  now="$(date +%s)"
+  if [ -f "$cooldown_file" ]; then
+    local last
+    last="$(cat "$cooldown_file" 2>/dev/null || echo 0)"
+    if [ $((now - last)) -lt "$NOTIFY_COOLDOWN" ]; then
+      return 0  # cooldown中
+    fi
+  fi
   "$OPENCLAW_BIN" message send --channel telegram --target "$TELEGRAM_TARGET" -m "$msg" >/dev/null 2>&1 || \
     logger -t silent-hang-monitor "WARN: Telegram notification failed" || true
+  echo "$now" > "$cooldown_file"
 }
 
 gateway_status_text="$("$OPENCLAW_BIN" gateway status 2>/dev/null || true)"
@@ -91,7 +106,7 @@ channels_ok="true"
 channels_warn_reason=""
 if grep -Eqi 'pairing required|blocked|allowlist|mention required|failed|error|unauthorized' <<<"$channels_status_text"; then
   channels_ok="false"
-  channels_warn_reason="$(grep -Ei 'pairing required|blocked|allowlist|mention required|failed|error|unauthorized' <<<"$channels_status_text" | head -1 | tr -d '\r' | head -c 240)"
+  channels_warn_reason="$(grep -Ei 'pairing required|blocked|allowlist|mention required|failed|error|unauthorized' <<<"$channels_status_text" | head -1 | tr -d '\r' | python3 -c "import sys; print(sys.stdin.read()[:80])")"
 fi
 
 session_stats="$(
@@ -198,16 +213,24 @@ if [ "$hour_now" -ge "$QUIET_START_HOUR" ] && [ "$hour_now" -lt "$QUIET_END_HOUR
 fi
 
 minute_now="$(TZ=Asia/Tokyo date '+%-M')"
-if [ $((minute_now % SAMPLE_EVERY_MIN)) -eq 0 ]; then
+if [[ "${SAMPLE_EVERY_MIN:-5}" -gt 0 ]] && [ $((minute_now % SAMPLE_EVERY_MIN)) -eq 0 ]; then
   emit_event "silent_hang_sample" "info" "observe" "sample collected" \
-    "{\"gateway_ok\": $gateway_ok, \"channels_ok\": $channels_ok, \"channels_reason\": $(python3 -c "import json,sys; print(json.dumps(sys.argv[1],ensure_ascii=False))" "$channels_warn_reason"), \"session\": $session_stats}"
+    "$(python3 -c "
+import json,sys
+print(json.dumps({
+    'gateway_ok': sys.argv[1]=='true',
+    'channels_ok': sys.argv[2]=='true',
+    'channels_reason': sys.argv[3],
+    'session': json.loads(sys.argv[4])
+}, ensure_ascii=False))
+" "$gateway_ok" "$channels_ok" "$channels_warn_reason" "$session_stats")"
 fi
 
 if [ "$gateway_ok" != "true" ]; then
   emit_event "gateway_rpc_unhealthy" "critical" "notify" \
     "gateway status is not healthy" \
     "$(python3 -c "import json,sys; print(json.dumps({'gateway_status':sys.argv[1][:800]},ensure_ascii=False))" "$gateway_status_text")"
-  notify "🚨 Gateway異常
+  notify "🚨 Gateway異常" "gateway_unhealthy
 $(ts_jst_hm) gateway status が unhealthy
 次: openclaw gateway status / openclaw logs --follow を確認"
 fi
@@ -218,7 +241,7 @@ if [ "$channels_ok" != "true" ]; then
     "$(python3 -c "import json,sys; print(json.dumps({'probe_reason':sys.argv[1]},ensure_ascii=False))" "$channels_warn_reason")"
   notify "⚠️ Channel警告
 $(ts_jst_hm) channels status --probe に警告
-内容: ${channels_warn_reason:-unknown}"
+内容: ${channels_warn_reason:-unknown}" "channel_warn"
 fi
 
 if [ -n "${pending_age:-}" ] && [ "$quiet_now" != "true" ]; then
@@ -229,7 +252,7 @@ if [ -n "${pending_age:-}" ] && [ "$quiet_now" != "true" ]; then
     notify "🚨 無言停止の疑い
 $(ts_jst_hm) 直近の入力に返答がありません
 pending_age=${pending_age}s
-次: openclaw gateway status / channels status --probe / 最新session確認"
+次: openclaw gateway status / channels status --probe / 最新session確認" "silent_hang"
   fi
 fi
 
@@ -239,5 +262,5 @@ if [ "${recent_web_calls:-0}" -ge "$WEB_BURST_THRESHOLD" ]; then
     "$(python3 -c "import json,sys; print(json.dumps(json.loads(sys.argv[1]),ensure_ascii=False))" "$session_stats")"
   notify "⚠️ web同時実行の疑い
 $(ts_jst_hm) recent_web_calls=${recent_web_calls}
-次: AGENTS運用ルールとsessionログ確認"
+次: AGENTS運用ルールとsessionログ確認" "web_burst"
 fi
